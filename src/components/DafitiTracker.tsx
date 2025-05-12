@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { FileUp, Download, Calendar, ArrowUpDown } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
@@ -18,6 +18,29 @@ const DafitiTracker: React.FC = () => {
     key: keyof ProcessedData;
     direction: 'asc' | 'desc';
   } | null>(null);
+
+  const filteredData = useMemo(() => {
+    return data.filter(item => !/-\d+$/.test(item.referencia));
+  }, [data]);
+
+  const statusCounts = useMemo(() => {
+    return {
+      recebidoNaBase: filteredData.filter(item => item.ultimaOcorrencia === 'Recebido na Base').length,
+      coletado: filteredData.filter(item => item.ultimaOcorrencia === 'Coletado').length,
+      romaneio: filteredData.filter(item => item.ultimaOcorrencia === 'Romaneio em Transferencia').length,
+      total: filteredData.length
+    };
+  }, [filteredData]);
+
+ const totalValue = useMemo(() => {
+  return filteredData.reduce((total, item) => {
+    const value = parseFloat(
+      item.valorNF?.replace(/[^\d,.-]/g, '').replace(',', '.')
+    );
+    return total + (isNaN(value) ? 0 : value);
+  }, 0);
+}, [filteredData]);
+
 
   const formatDateTime = (dateStr: string | number): string | null => {
     try {
@@ -151,7 +174,7 @@ const DafitiTracker: React.FC = () => {
 
   const exportToExcel = () => {
     try {
-      const exportData = data.map(item => ({
+      const exportData = filteredData.map(item => ({
         Referência: item.referencia,
         'Última Ocorrência': item.ultimaOcorrencia,
         'Data Última Ocorrência': item.dataUltimaOcorrencia,
@@ -211,7 +234,7 @@ const DafitiTracker: React.FC = () => {
           </label>
         </div>
 
-        {data.length > 0 && (
+        {filteredData.length > 0 && (
           <button
             onClick={exportToExcel}
             className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors"
@@ -228,66 +251,89 @@ const DafitiTracker: React.FC = () => {
         </div>
       )}
 
-      {data.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-[#ed5c0e] text-white font-bold">
-              <tr>
-                <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('referencia')}>
-                  <div className="flex items-center gap-2">
-                    Referência
-                    <ArrowUpDown size={16} />
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('ultimaOcorrencia')}>
-                  <div className="flex items-center gap-2">
-                    Última Ocorrência
-                    <ArrowUpDown size={16} />
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('dataUltimaOcorrencia')}>
-                  <div className="flex items-center gap-2">
-                    Data Última Ocorrência
-                    <ArrowUpDown size={16} />
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('valorNF')}>
-                  <div className="flex items-center gap-2">
-                    Valor NF
-                    <ArrowUpDown size={16} />
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('status')}>
-                  <div className="flex items-center gap-2">
-                    Status
-                    <ArrowUpDown size={16} />
-                  </div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {data.map((row) => (
-                <tr key={row.referencia}>
-                  <td className="px-6 py-4 whitespace-nowrap">{row.referencia}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">{row.ultimaOcorrencia}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">{row.dataUltimaOcorrencia}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">{row.valorNF}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <select
-                      value={row.status}
-                      onChange={(e) => handleStatusChange(row.referencia, e.target.value)}
-                      className="border rounded px-2 py-1"
-                    >
-                      <option value="Pendentes">Pendentes</option>
-                      <option value="Resolvido">Resolvido</option>
-                      <option value="Extraviado">Extraviado</option>
-                    </select>
-                  </td>
+      {filteredData.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <h3 className="text-lg font-semibold mb-3">Status dos Pedidos</h3>
+              <div className="space-y-2">
+                <p>Recebido na Base: <span className="font-semibold">{statusCounts.recebidoNaBase}</span></p>
+                <p>Coletado: <span className="font-semibold">{statusCounts.coletado}</span></p>
+                <p>Romaneio em Transferência: <span className="font-semibold">{statusCounts.romaneio}</span></p>
+                <div className="border-t border-gray-300 mt-2 pt-2">
+                  <p className="font-semibold">Total de Pedidos: {statusCounts.total}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <h3 className="text-lg font-semibold mb-3">Valor Total</h3>
+              <p className="text-2xl font-bold text-green-600">
+                {totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-[#ed5c0e] text-white font-bold">
+                <tr>
+                  <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('referencia')}>
+                    <div className="flex items-center gap-2">
+                      Referência
+                      <ArrowUpDown size={16} />
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('ultimaOcorrencia')}>
+                    <div className="flex items-center gap-2">
+                      Última Ocorrência
+                      <ArrowUpDown size={16} />
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('dataUltimaOcorrencia')}>
+                    <div className="flex items-center gap-2">
+                      Data Última Ocorrência
+                      <ArrowUpDown size={16} />
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('valorNF')}>
+                    <div className="flex items-center gap-2">
+                      Valor NF
+                      <ArrowUpDown size={16} />
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm uppercase tracking-wider cursor-pointer hover:bg-[#d45509] transition-colors" onClick={() => handleSort('status')}>
+                    <div className="flex items-center gap-2">
+                      Status
+                      <ArrowUpDown size={16} />
+                    </div>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredData.map((row) => (
+                  <tr key={row.referencia}>
+                    <td className="px-6 py-4 whitespace-nowrap">{row.referencia}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{row.ultimaOcorrencia}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{row.dataUltimaOcorrencia}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{row.valorNF}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <select
+                        value={row.status}
+                        onChange={(e) => handleStatusChange(row.referencia, e.target.value)}
+                        className="border rounded px-2 py-1"
+                      >
+                        <option value="Pendentes">Pendentes</option>
+                        <option value="Resolvido">Resolvido</option>
+                        <option value="Extraviado">Extraviado</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
