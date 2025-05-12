@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { FileUp, Download, Calendar, ArrowUpDown } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { format, subDays, parse, isValid } from 'date-fns';
+import { format, parse, isValid } from 'date-fns';
 
 interface ProcessedData {
-  id?: string;
   referencia: string;
   ultimaOcorrencia: string;
   dataUltimaOcorrencia: string | null;
@@ -16,59 +14,27 @@ interface ProcessedData {
 const DafitiTracker: React.FC = () => {
   const [data, setData] = useState<ProcessedData[]>([]);
   const [error, setError] = useState<string>('');
-  const [daysToShow, setDaysToShow] = useState<number>(1);
   const [sortConfig, setSortConfig] = useState<{
     key: keyof ProcessedData;
     direction: 'asc' | 'desc';
   } | null>(null);
-
-  useEffect(() => {
-    loadSavedData();
-  }, [daysToShow]);
-
-  const loadSavedData = async () => {
-    try {
-      const startDate = format(subDays(new Date(), daysToShow), 'yyyy-MM-dd');
-      
-      const { data: savedData, error: dbError } = await supabase
-        .from('orders')
-        .select('*')
-        .gte('created_at', startDate);
-
-      if (dbError) throw dbError;
-      
-      if (savedData) {
-        setData(savedData.map(item => ({
-          id: item.id,
-          referencia: item.referencia,
-          ultimaOcorrencia: item.ultima_ocorrencia || '',
-          dataUltimaOcorrencia: item.data_ultima_ocorrencia ? format(new Date(item.data_ultima_ocorrencia), 'dd/MM/yyyy HH:mm') : null,
-          valorNF: item.merchandise_value || '',
-          status: item.status
-        })));
-      }
-    } catch (err) {
-      console.error('Error loading data:', err);
-      setError('Erro ao carregar dados salvos.');
-    }
-  };
 
   const formatDateTime = (dateStr: string | number): string | null => {
     try {
       if (typeof dateStr === 'number') {
         const date = XLSX.SSF.parse_date_code(dateStr);
         const parsedDate = new Date(date.y, date.m - 1, date.d, date.H, date.M);
-        return format(parsedDate, 'yyyy-MM-dd HH:mm:ss');
+        return format(parsedDate, 'dd/MM/yyyy HH:mm');
       }
 
       const parsedDate = parse(dateStr, 'dd/MM/yyyy HH:mm', new Date());
       if (isValid(parsedDate)) {
-        return format(parsedDate, 'yyyy-MM-dd HH:mm:ss');
+        return format(parsedDate, 'dd/MM/yyyy HH:mm');
       }
 
       const isoDate = new Date(dateStr);
       if (isValid(isoDate)) {
-        return format(isoDate, 'yyyy-MM-dd HH:mm:ss');
+        return format(isoDate, 'dd/MM/yyyy HH:mm');
       }
 
       return null;
@@ -150,7 +116,6 @@ const DafitiTracker: React.FC = () => {
               referencia,
               ultimaOcorrencia,
               dataUltimaOcorrencia: formattedDate,
-              servico,
               valorNF,
               status: 'Pendentes'
             };
@@ -158,40 +123,17 @@ const DafitiTracker: React.FC = () => {
           .filter(row => 
             row.referencia && 
             row.dataUltimaOcorrencia && 
-            row.servico === 'MR Coleta' &&
             (row.ultimaOcorrencia === 'Recebido na Base' || 
              row.ultimaOcorrencia === 'Coletado' ||
              row.ultimaOcorrencia === 'Romaneio em Transferencia')
           );
 
-        const uniqueData = processedData.reduce((acc: ProcessedData[], current) => {
-          const existingIndex = acc.findIndex(item => item.referencia === current.referencia);
-          if (existingIndex >= 0) {
-            acc[existingIndex] = current;
-          } else {
-            acc.push(current);
-          }
-          return acc;
-        }, []);
-
-        if (uniqueData.length === 0) {
+        if (processedData.length === 0) {
           setError('Nenhum dado encontrado com os critérios especificados.');
           return;
         }
 
-        const { error: dbError } = await supabase
-          .from('orders')
-          .insert(uniqueData.map(item => ({
-            referencia: item.referencia,
-            ultima_ocorrencia: item.ultimaOcorrencia,
-            data_ultima_ocorrencia: item.dataUltimaOcorrencia,
-            merchandise_value: item.valorNF,
-            status: item.status
-          })));
-
-        if (dbError) throw dbError;
-
-        await loadSavedData();
+        setData(processedData);
       } catch (err) {
         console.error('Error processing Excel file:', err);
         setError('Erro ao processar o arquivo. Verifique se o formato está correto.');
@@ -201,22 +143,10 @@ const DafitiTracker: React.FC = () => {
     reader.readAsBinaryString(file);
   };
 
-  const handleStatusChange = async (id: string, newStatus: string) => {
-    try {
-      const { error: dbError } = await supabase
-        .from('orders')
-        .update({ status: newStatus })
-        .eq('id', id);
-
-      if (dbError) throw dbError;
-
-      setData(data.map(item => 
-        item.id === id ? { ...item, status: newStatus } : item
-      ));
-    } catch (err) {
-      console.error('Error updating status:', err);
-      setError('Erro ao atualizar o status.');
-    }
+  const handleStatusChange = (referencia: string, newStatus: string) => {
+    setData(data.map(item => 
+      item.referencia === referencia ? { ...item, status: newStatus } : item
+    ));
   };
 
   const exportToExcel = () => {
@@ -279,20 +209,6 @@ const DafitiTracker: React.FC = () => {
               onChange={(e) => e.target.files?.[0] && processExcel(e.target.files[0])}
             />
           </label>
-
-          <div className="flex items-center gap-2">
-            <Calendar size={20} className="text-gray-600" />
-            <select
-              value={daysToShow}
-              onChange={(e) => setDaysToShow(Number(e.target.value))}
-              className="border rounded px-2 py-1"
-            >
-              <option value={1}>Último dia</option>
-              <option value={7}>Últimos 7 dias</option>
-              <option value={15}>Últimos 15 dias</option>
-              <option value={30}>Últimos 30 dias</option>
-            </select>
-          </div>
         </div>
 
         {data.length > 0 && (
@@ -351,7 +267,7 @@ const DafitiTracker: React.FC = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {data.map((row) => (
-                <tr key={row.id}>
+                <tr key={row.referencia}>
                   <td className="px-6 py-4 whitespace-nowrap">{row.referencia}</td>
                   <td className="px-6 py-4 whitespace-nowrap">{row.ultimaOcorrencia}</td>
                   <td className="px-6 py-4 whitespace-nowrap">{row.dataUltimaOcorrencia}</td>
@@ -359,7 +275,7 @@ const DafitiTracker: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <select
                       value={row.status}
-                      onChange={(e) => row.id && handleStatusChange(row.id, e.target.value)}
+                      onChange={(e) => handleStatusChange(row.referencia, e.target.value)}
                       className="border rounded px-2 py-1"
                     >
                       <option value="Pendentes">Pendentes</option>
